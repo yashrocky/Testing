@@ -4,13 +4,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using KCop.Core;
 using Microsoft.Build.Framework;
 
 namespace StyleCop.KRunner
 {
     public class Program
     {
-        private static readonly List<Violation> _violations = new List<Violation>();
 
         public static int Main(string[] args)
         {
@@ -23,6 +23,7 @@ namespace StyleCop.KRunner
                 Console.WriteLine("Usage:");
                 Console.WriteLine("\tStyleCop.KRunner <path/to/project.json>");
                 Console.WriteLine();
+                Console.ReadLine();
                 return -1;
             }
 
@@ -33,46 +34,14 @@ namespace StyleCop.KRunner
                 return -2;
             }
 
-            var runner = new StyleCopConsole(
-                settings: null,
-                writeResultsCache:
-                false,
-                outputFile: null,
-                addInPaths: null,
-                loadFromDefaultPath: true); // Loads rules next to StyleCop.dll in the file system.
+            var runner = new Runner(projectFile);
 
-            var projectDirectory = Path.GetDirectoryName(projectFile);
+            runner.OnViolationEncountered += Runner_ViolationEncountered;
+            runner.OnOutputGenerated += Runner_OutputGenerated;
 
-            // It's OK if the settings file is null.
-            var settingsFile = FindSettingsFile(projectDirectory);
+            var violations = runner.Run();
 
-            var project = new CodeProject(0, projectDirectory, new Configuration(null));
-            foreach (var file in Directory.EnumerateFiles(projectDirectory, "*.cs", SearchOption.AllDirectories))
-            {
-                runner.Core.Environment.AddSourceCode(project, file, context: null);
-            }
-
-            try
-            {
-                runner.OutputGenerated += Runner_OutputGenerated;
-                runner.ViolationEncountered += Runner_ViolationEncountered;
-
-                if (settingsFile == null)
-                {
-                    runner.Core.Analyze(new CodeProject[] { project });
-                }
-                else
-                {
-                    runner.Core.Analyze(new CodeProject[] { project }, settingsFile);
-                }
-            }
-            finally
-            {
-                runner.OutputGenerated -= Runner_OutputGenerated;
-                runner.ViolationEncountered -= Runner_ViolationEncountered;
-            }
-
-            if (_violations.Count == 0)
+            if (violations.Count == 0)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
             }
@@ -83,38 +52,19 @@ namespace StyleCop.KRunner
 
             Console.WriteLine();
             Console.WriteLine("Finished Processing: {0}", projectFile);
-            Console.WriteLine("{0} errors found.", _violations.Count);
+            Console.WriteLine("{0} errors found.", violations.Count);
             Console.WriteLine();
 
             Console.ResetColor();
 
-            return _violations.Count;
-        }
+            Console.ReadLine();
 
-        // Performs an ascending directory search starting at the project directory
-        private static string FindSettingsFile(string projectDirectory)
-        {
-            var current = new DirectoryInfo(projectDirectory);
-            var root = current.Root;
-
-            do
-            {
-                var settingsFile = Path.Combine(current.FullName, "Settings.StyleCop");
-                if (File.Exists(settingsFile))
-                {
-                    return settingsFile;
-                }
-            }
-            while ((current = current.Parent) != null);
-
-            return null;
+            return violations.Count;
         }
 
         private static void Runner_ViolationEncountered(object sender, ViolationEventArgs e)
         {
             Console.WriteLine("{0}: {1} Line {2} - {3}", e.Violation.Rule.CheckId, e.SourceCode.Path, e.LineNumber, e.Message);
-
-            _violations.Add(e.Violation);
         }
 
         private static void Runner_OutputGenerated(object sender, OutputEventArgs e)
